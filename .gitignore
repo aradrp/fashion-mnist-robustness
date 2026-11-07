@@ -2,3 +2,5 @@
 /reproduced/
 .venv/
 __pycache__/
+/benchmark_reproduced/
+/sample-comparison.png

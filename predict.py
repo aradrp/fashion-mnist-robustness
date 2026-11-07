@@ -10,6 +10,20 @@ import torch
 from experiment import CLASSES, ROOT, make_model
 
 
+def load_classifier(path):
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    model = make_model(checkpoint["model"])
+    model.load_state_dict(checkpoint["state_dict"])
+    return model.eval()
+
+
+def load_image(path, *, invert=False):
+    with Image.open(path) as image:
+        gray = image.convert("L").resize((28, 28), Image.Resampling.BILINEAR)
+        pixels = torch.from_numpy(np.array(gray, dtype=np.float32)).reshape(1, 1, 28, 28) / 255
+    return 1 - pixels if invert else pixels
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
@@ -17,15 +31,8 @@ def main():
                         default=ROOT / "results/checkpoints/cnn_aug_11.pt")
     parser.add_argument("--invert", action="store_true", help="Invert dark foreground on light background.")
     args = parser.parse_args()
-    checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
-    model = make_model(checkpoint["model"])
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
-    with Image.open(args.image) as image:
-        gray = image.convert("L").resize((28, 28), Image.Resampling.BILINEAR)
-        x = torch.from_numpy(np.array(gray, dtype=np.float32)).reshape(1, 1, 28, 28) / 255
-    if args.invert:
-        x = 1 - x
+    model = load_classifier(args.checkpoint)
+    x = load_image(args.image, invert=args.invert)
     with torch.inference_mode():
         scores, labels = model(x).softmax(1).topk(3)
     print(json.dumps([{"label": CLASSES[label], "score": score}

@@ -67,7 +67,7 @@ def load_split(prefix, directory):
 def make_model(name):
     if name == "linear":
         return nn.Sequential(nn.Flatten(), nn.Linear(784, 10))
-    if name in ("cnn", "cnn_aug"):
+    if name in ("cnn", "cnn_aug", "cnn_mixed"):
         return nn.Sequential(
             nn.Conv2d(1, 16, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
             nn.Conv2d(16, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
@@ -129,7 +129,7 @@ def evaluate(model, loader, corruption="clean", sigma=0.0):
     }
 
 
-def train(name, seed, train_data, val_loader, args, checkpoint_dir):
+def train(name, seed, train_data, val_loader, args, checkpoint_dir, *, augment=None):
     torch.manual_seed(seed)
     model = make_model(name)
     train_loader = batches(*train_data, args.batch_size, seed=seed)
@@ -147,6 +147,8 @@ def train(name, seed, train_data, val_loader, args, checkpoint_dir):
                 noisy = gaussian(x, AUG_SIGMA, aug_rng)
                 mask = torch.rand((len(x), 1, 1, 1), generator=aug_rng) < 0.5
                 x = torch.where(mask, noisy, x)
+            if augment is not None:
+                x = augment(x, aug_rng)
             optimizer.zero_grad(set_to_none=True)
             loss = criterion(model(x), labels)
             loss.backward()
