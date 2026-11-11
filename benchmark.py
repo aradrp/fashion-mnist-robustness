@@ -132,7 +132,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data")
     parser.add_argument("--baselines", type=Path, default=ROOT / "results" / "checkpoints")
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmark_results")
+    parser.add_argument(
+        "--mixed-checkpoints", type=Path,
+        help="Evaluate saved mixed CNNs from this directory instead of training.",
+    )
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "benchmark_reproduced",
+        help="Directory for new results (default: benchmark_reproduced).",
+    )
     parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
     if args.threads < 1:
@@ -141,30 +148,37 @@ def main():
     args.batch_size, args.epochs = 256, 8
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
-    for seed in SEEDS:
-        for name in ("linear", "cnn", "cnn_aug"):
-            if not (args.baselines / f"{name}_{seed}.pt").is_file():
-                parser.error(f"missing baseline checkpoint: {name}_{seed}.pt")
-    images, labels = load_split("train", args.data_dir)
+    checkpoint_sources = {name: args.baselines for name in MODELS if name != "cnn_mixed"}
+    if args.mixed_checkpoints is not None:
+        checkpoint_sources["cnn_mixed"] = args.mixed_checkpoints
+    for name, source in checkpoint_sources.items():
+        for seed in SEEDS:
+            path = source / f"{name}_{seed}.pt"
+            if not path.is_file():
+                parser.error(f"missing checkpoint: {path}")
     test_loader = batches(*load_split("t10k", args.data_dir), args.batch_size)
-    training, validation = train_val_indices(labels)
-    train_data = images[training], labels[training]
-    val_loader = batches(images[validation], labels[validation], args.batch_size)
-    checkpoints = args.output / "checkpoints"
-    checkpoints.mkdir(parents=True, exist_ok=True)
+    args.output.mkdir(parents=True, exist_ok=True)
+    if args.mixed_checkpoints is None:
+        images, labels = load_split("train", args.data_dir)
+        training, validation = train_val_indices(labels)
+        train_data = images[training], labels[training]
+        val_loader = batches(images[validation], labels[validation], args.batch_size)
+        checkpoints = args.output / "checkpoints"
+        checkpoints.mkdir(exist_ok=True)
     rows, histories = [], {}
     for seed in SEEDS:
-        mixed, epoch, history = train("cnn_mixed", seed, train_data, val_loader, args, checkpoints,
-                                      augment=mixed_augmentation)
-        histories[seed] = {"selected_epoch": epoch, "epochs": history}
         for name in MODELS:
-            if name == "cnn_mixed":
-                model = mixed
+            if name not in checkpoint_sources:
+                model, epoch, history = train(
+                    name, seed, train_data, val_loader, args, checkpoints,
+                    augment=mixed_augmentation,
+                )
+                histories[seed] = {"selected_epoch": epoch, "epochs": history}
             else:
-                checkpoint = torch.load(args.baselines / f"{name}_{seed}.pt", weights_only=True,
-                                        map_location="cpu")
+                path = checkpoint_sources[name] / f"{name}_{seed}.pt"
+                checkpoint = torch.load(path, weights_only=True, map_location="cpu")
                 if (checkpoint["model"], checkpoint["seed"]) != (name, seed):
-                    raise ValueError(f"Unexpected model or seed in baseline {name}_{seed}.pt")
+                    raise ValueError(f"Unexpected model or seed in checkpoint: {path}")
                 model = make_model(name)
                 model.load_state_dict(checkpoint["state_dict"])
             for family, severity in CONDITIONS:
@@ -177,14 +191,21 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
     metadata = {
-        "seeds": SEEDS, "epochs": args.epochs, "batch_size": args.batch_size,
+        "seeds": SEEDS, "batch_size": args.batch_size,
+        "mode": "evaluate_checkpoints" if args.mixed_checkpoints is not None else "train_mixed",
         "torch": str(torch.__version__), "threads": args.threads,
         "test_noise_seed": NOISE_SEED, "test_severities": SEVERITIES,
-        "mixed_training": {"clean_probability": 0.5, "gaussian_probability": 0.25,
-                           "shift_probability": 0.25, "gaussian_sigma": AUG_SIGMA,
-                           "shift_offsets": [-3, -2, -1, 1, 2, 3]},
-        "histories": histories,
     }
+    if args.mixed_checkpoints is None:
+        metadata.update({
+            "epochs": args.epochs,
+            "mixed_training": {
+                "clean_probability": 0.5, "gaussian_probability": 0.25,
+                "shift_probability": 0.25, "gaussian_sigma": AUG_SIGMA,
+                "shift_offsets": [-3, -2, -1, 1, 2, 3],
+            },
+            "histories": histories,
+        })
     (args.output / "summary.json").write_text(
         json.dumps({"protocol": metadata, "models": summarize(rows)}, indent=2) + "\n", encoding="utf-8",
     )

@@ -1,6 +1,8 @@
-# Fashion-MNIST Corruption Robustness
+# Fashion-MNIST Robustness Benchmark
 
-An ENEL 645 deep learning project that measures how Gaussian noise and small image shifts affect clothing classification on Fashion-MNIST. It compares a linear classifier, a compact convolutional neural network (CNN), and the same CNN trained with Gaussian noise augmentation.
+An ENEL 645 deep learning project that measures how Gaussian noise, horizontal shifts, and box blur affect clothing classification on Fashion-MNIST. It compares a linear classifier, a compact CNN, and two variants of the same CNN trained with Gaussian-only or mixed Gaussian and shift augmentation.
+
+Mixed augmentation raised mean accuracy across the 12 tested corruptions from **70.38% to 76.38%** compared with Gaussian-only augmentation. The largest gain was on right shifts, while accuracy on held-out blur dropped by 1.50 percentage points.
 
 ## Extended robustness benchmark
 
@@ -17,16 +19,29 @@ On the official 10,000-image test split, all four models see the same clean imag
 
 Family accuracy averages the four severities per seed before averaging the three seeds. **All corruptions** weights the three families equally and excludes clean inputs. **Worst condition** averages each seed’s minimum accuracy across the 12 corruptions. The chart shows mean ± sample standard deviation across training seeds.
 
-Relative to the Gaussian-only CNN, mixed augmentation changed mean corruption accuracy by **+6.00 percentage points**. The family-level changes were +20.21 points for shifts, -0.71 for Gaussian noise, and -1.50 for held-out blur. Clean accuracy changed by +0.06 points. These numbers describe the tested synthetic conditions on Fashion-MNIST.
+Relative to the Gaussian-only CNN, mixed augmentation improved accuracy on right shifts by 20.21 percentage points and reduced accuracy under Gaussian noise by 0.71 points. Clean accuracy changed by +0.06 points. These numbers describe the tested synthetic conditions on Fashion-MNIST.
 
 ![Accuracy across Gaussian noise, right shift, and held-out blur](benchmark_results/corruption-benchmark.png)
 
+After [setup](#setup-on-windows), evaluate all 12 bundled checkpoints using only the official test split:
+
+~~~powershell
+.\.venv\Scripts\python.exe benchmark.py --mixed-checkpoints benchmark_results/checkpoints
+~~~
+
+To retrain the mixed-augmentation CNN for all three seeds and evaluate it alongside the original checkpoints:
+
 ~~~powershell
 .\.venv\Scripts\python.exe benchmark.py --output benchmark_reproduced
+~~~
+
+Both modes write a CSV, a JSON summary, and a plot to `benchmark_reproduced/` by default. Use `--output` to keep results from multiple runs. Run the corruption operator checks with:
+
+~~~powershell
 .\.venv\Scripts\python.exe -m unittest -v test_benchmark
 ~~~
 
-The benchmark retrains the mixed-augmentation CNN for all three seeds and evaluates it alongside the original checkpoints. [Per-run scores](benchmark_results/metrics.csv) cover all 156 evaluations, including macro-F1. The [summary and run settings](benchmark_results/summary.json) include per-family means, sample standard deviations, and training histories.
+The [published per-run scores](benchmark_results/metrics.csv) cover all 156 evaluations, including macro-F1. The [published summary](benchmark_results/summary.json) includes per-family means, sample standard deviations, and training histories.
 
 ## Inspect a prediction under corruption
 
@@ -88,6 +103,9 @@ These commands write to `reproduced/` so you can compare your run with the bundl
 | Path | Contents |
 | --- | --- |
 | `experiment.py` | Dataset download, data splits, model training, and evaluation |
+| `benchmark.py` | Four-model benchmark across 12 corruptions plus clean inputs |
+| `inspect_sample.py` | Side-by-side clean and corrupted predictions for one image |
+| `test_benchmark.py` | Regression checks for corruption operators |
 | `predict.py` | Single-image inference with a saved checkpoint |
 | `figures.py` | Summary statistics and plots |
 | `results/checkpoints/` | Nine checkpoints for three models and three seeds |
@@ -95,5 +113,6 @@ These commands write to `reproduced/` so you can compare your run with the bundl
 | `results/experiment.json` | Run settings, validation histories, and confusion matrices |
 | `results/summary.json` | Means and sample standard deviations across training seeds |
 | `results/*.png` | Experiment plots and the sample inference image |
+| `benchmark_results/` | Extended benchmark metrics, figures, and three mixed-augmentation checkpoints |
 
 [Official Fashion-MNIST dataset](https://github.com/zalandoresearch/fashion-mnist)
